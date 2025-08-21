@@ -1,9 +1,21 @@
+#******************* 使用说明 *****************************
+#初始状态下为 NORMAL 短按 --> DELAY --> MARK
+#MARK模式下会旋转一定角度 防止在原位误识别
+#支持两种方式设置模板
+#1、直接将目标人物放在摄像头前
+#2、长按进入设置人物模式
+#3、在1中设置好目标人物后可以长按切换下一个（按索引）
+#MARK 短按 --> DELAY --> DANGER_DETECT
+#DANGER_DETECT 将模板控制在画面中心 发射激光
+#DANGER_DETECT --> DELAY --> NORMAL
+#*********************************************************
 import time
 import sensor
 import image
 from image import SEARCH_EX
 import pyb
-from pyb import Servo
+from pyb import Servo,Pin
+
 
 # ******************** 硬件初始化配置 ********************
 sensor.reset()
@@ -32,10 +44,12 @@ PAN_SERVO_CH = 1                  # 水平舵机通道
 TILT_SERVO_CH = 2                 # 垂直舵机通道
 KP_PAN = 0.05                    # 水平方向比例系数
 KP_TILT = 0.05                  # 垂直方向比例系数
-DEAD_ZONE = 4                    # 控制死区（像素）
+DEAD_ZONE = 5                    # 控制死区（像素）
 MAX_SERVO_DELTA = 3              # 每次最大调整角度
 CONFIRM_NUM = 5
-
+# 图像中心坐标 (QVGA: 320x240)
+img_center_x = 175
+img_center_y = 110
 # ******************** 系统状态机 ********************
 class SystemState:
     NORMAL = 0          # 默认状态，正常识别
@@ -80,6 +94,9 @@ class SafetySystem:
         self.danger_confirm_count = 0
 
         self.index = 0
+
+        self.center_counter = 0
+        self.CENTER_GPIO_STATE = False
     def load_templates(self):
         """加载所有模板文件"""
         templates = []
@@ -147,6 +164,8 @@ class SafetySystem:
 
         elif self.current_state == SystemState.DELAY_BEFORE_NORMAL:
             pan_servo.angle(0)
+            tilt_servo.angle(0)
+            gpio.low()
             if state_time >= DELAY_TIME:
                 self.current_state = SystemState.NORMAL
                 self.danger_template = None
@@ -210,6 +229,7 @@ class SafetySystem:
         if danger_confirmed and target_cx is not None:
             print(target_cx, target_cy)
             self.stabilize_target(target_cx, target_cy)
+            self.check_center(target_cx - img_center_x , target_cy - img_center_y)
 
             # 每 500ms 翻转蜂鸣器和输出危险模板
             if time.ticks_diff(current_time, self.last_buzzer_time) > 500:
@@ -341,10 +361,6 @@ class SafetySystem:
         """云台控制：将目标稳定在画面中央"""
         global current_pan, current_tilt
 
-        # 图像中心坐标 (QVGA: 320x160)
-        img_center_x = 160
-        img_center_y = 120
-
         # 计算目标位置与画面中心的偏差
         dx = cx - img_center_x
         dy = cy - img_center_y
@@ -389,6 +405,28 @@ class SafetySystem:
             if new_tilt != current_tilt:
                 tilt_servo.angle(int(new_tilt))
                 current_tilt = new_tilt
+
+
+    def check_center(self, dx, dy):
+        # 判断是否在中心区域
+        centered = abs(dx) <= DEAD_ZONE and abs(dy) <= DEAD_ZONE
+
+        if centered:
+            self.center_counter += 1   # 连续居中帧数+1
+        else:
+            self.center_counter = 0    # 一旦不居中，计数清零
+
+        # 当连续 CENTER_CONSECUTIVE_FRAMES 帧都居中，并且 GPIO 还没点亮
+        if self.center_counter >= CONFIRM_NUM and not self.CENTER_GPIO_STATE:
+            gpio.high()            # 点灯（输出高电平）
+            self.CENTER_GPIO_STATE = True
+        # 如果偏离中心，并且灯还亮着 -> 熄灭
+        elif not centered and self.CENTER_GPIO_STATE:
+            gpio.low()
+            self.CENTER_GPIO_STATE = False
+
+        return centered
+
 # ******************** 初始化系统 ********************
 # 初始化按键
 key = pyb.Pin(KEY_PIN, pyb.Pin.IN, pyb.Pin.PULL_UP)
@@ -405,6 +443,10 @@ key_longpressed = False
 # 初始化蜂鸣器
 buzzer = pyb.Pin(BUZZER_PIN, pyb.Pin.OUT_PP)
 buzzer.value(1)  # 初始关闭
+
+#初始化激光笔
+gpio = Pin("P2", Pin.OUT_PP)
+gpio.low()
 
 # 创建安全系统
 safety_system = SafetySystem()

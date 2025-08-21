@@ -75,10 +75,11 @@ class SafetySystem:
 
         self.mark_confirm_count = 0
         self.mark_candidate = None
+        self.isdanger = False
 
         self.danger_confirm_count = 0
 
-        self.index = 3
+        self.index = 0
     def load_templates(self):
         """加载所有模板文件"""
         templates = []
@@ -150,6 +151,7 @@ class SafetySystem:
                 self.current_state = SystemState.NORMAL
                 self.danger_template = None
                 self.state_start_time = current_time
+                self.isdanger = False
                 print("进入状态:", self.state_description())
                 print("警报解除")
 
@@ -290,22 +292,28 @@ class SafetySystem:
                 else:
                     self.mark_candidate = template["name"]
                     self.mark_confirm_count = 1
-                    self.index = self.templates.index(template)
+
 
                 # 连续5帧检测到同一个模板 -> 确认危险模板
                 if self.mark_confirm_count >= CONFIRM_NUM:
                     self.danger_template = self.mark_candidate
+                    self.isdanger = True
                     print(f"[确认] 设置危险模板: {self.danger_template}")
                     self.mark_confirm_count = 0
                     self.mark_candidate = None
-
+                    self.index = self.templates.index(template)
                 break
 
-        if key_longpressed :
+        if key_longpressed and not self.isdanger :
             print("长按切换人物模式")
+            self.index = 0
+            self.danger_template = self.templates[self.index]["name"]
+            self.isdanger = True
+            print(f"[确认]设置危险模板: {self.danger_template}")
+        elif key_longpressed and self.isdanger:
             self.index =( self.index + 1 ) % len(self.templates)
             self.danger_template = self.templates[self.index]["name"]
-            print(f"[确认]设置危险模板: {self.danger_template}")
+            print(f"切换到危险模板: {self.danger_template}")
 
 
 

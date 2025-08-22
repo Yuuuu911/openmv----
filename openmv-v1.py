@@ -78,7 +78,6 @@ class SafetySystem:
         self.danger_template = None  # 危险模板
 
         self.templates = self.load_templates()
-        print("系统初始化完成 -", self.state_description())
 
         self.state_start_time = time.ticks_ms()
         self.last_buzzer_time = time.ticks_ms()
@@ -86,17 +85,16 @@ class SafetySystem:
         self.buzzer_state = 1  # 初始关闭
 
         self.safe_count = 0
-
         self.mark_confirm_count = 0
         self.mark_candidate = None
-        self.isdanger = False
+        self.isdanger = False #检测第一次设置mark模板
 
         self.danger_confirm_count = 0
-
         self.index = 0
-
         self.center_counter = 0
         self.CENTER_GPIO_STATE = False
+
+        print("系统初始化完成 -", self.state_description())
     def load_templates(self):
         """加载所有模板文件"""
         templates = []
@@ -104,7 +102,7 @@ class SafetySystem:
             try:
                 # 预处理模板图像
                 template_img = image.Image(path)
-                template_img = template_img.gaussian(3)  # 高斯模·糊降噪
+                template_img = template_img.gaussian(3)  # 高斯模糊降噪
                 name = path.split(".")[0]
                 template = {
                     "image": template_img,
@@ -321,7 +319,7 @@ class SafetySystem:
                     print(f"[确认] 设置危险模板: {self.danger_template}")
                     self.mark_confirm_count = 0
                     self.mark_candidate = None
-                    self.index = self.templates.index(template)
+                    self.index = self.templates.index(template)#获取当前索引
                 break
 
         if key_longpressed and not self.isdanger :

@@ -96,6 +96,13 @@ class SafetySystem:
         self.center_counter = 0
         self.CENTER_GPIO_STATE = False
 
+        self.beep_target = 0
+        self.beep_done = 0
+        self.beep_state = 0
+        self.beep_last_time = 0
+        self.beep_last_time = 0
+        self.beep_interval = 200
+
         print("系统初始化完成 -", self.state_description())
     def load_templates(self):
         """加载所有模板文件"""
@@ -321,6 +328,7 @@ class SafetySystem:
                     self.mark_confirm_count = 0
                     self.mark_candidate = None
                     self.index = self.templates.index(template)#获取当前索引
+                    self.start_beep(self.index + 1)
                 break
 
         if key_longpressed and not self.isdanger :
@@ -329,10 +337,12 @@ class SafetySystem:
             self.danger_template = self.templates[self.index]["name"]
             self.isdanger = True
             print(f"[确认]设置危险模板: {self.danger_template}")
+            self.start_beep(self.index + 1)
         elif key_longpressed and self.isdanger:
             self.index =( self.index + 1 ) % len(self.templates)
             self.danger_template = self.templates[self.index]["name"]
             print(f"切换到危险模板: {self.danger_template}")
+            self.start_beep(self.index + 1)
 
 
 
@@ -417,7 +427,7 @@ class SafetySystem:
 
         # 当连续 CENTER_CONSECUTIVE_FRAMES 帧都居中，并且 GPIO 还没点亮
         if self.center_counter >= CONFIRM_NUM and not self.CENTER_GPIO_STATE:
-            gpio.high()# 点灯（输出高电平）
+            gpio.high()            # 点灯（输出高电平）
             self.CENTER_GPIO_STATE = True
         # 如果偏离中心，并且灯还亮着 -> 熄灭
         elif not centered and self.CENTER_GPIO_STATE:
@@ -425,6 +435,34 @@ class SafetySystem:
             self.CENTER_GPIO_STATE = False
 
         return centered
+
+    def start_beep(self,n):
+        self.beep_target = n + 1
+        self.beep_done = 0
+        self.beep_state = 1
+        self.beep_last_time = time.ticks_ms()
+        buzzer.value(0)
+
+    def update_beep(self):
+        if self.beep_state == 0 :
+            return
+
+        now = time.ticks_ms()
+        if time.ticks_diff(now,self.beep_last_time)>=self.beep_interval:
+            self.beep_last_time = now
+            if self.beep_state == 1:
+                buzzer.value(1)
+                self.beep_state = 2
+            elif self.beep_state == 2:
+                self.beep_done += 1
+                if self.beep_done >= self.beep_target:
+                    self.beep_done = 0
+                    buzzer.value(1)
+                    self.beep_state = 0
+                else:
+                    buzzer.value(0)
+                    self.beep_state = 1
+
 
 # ******************** 初始化系统 ********************
 # 初始化按键
@@ -447,7 +485,6 @@ buzzer.value(1)  # 初始关闭
 gpio = Pin("P2", Pin.OUT_PP)
 gpio.low()
 
-# 创建安全系统
 safety_system = SafetySystem()
 clock = time.clock()
 
@@ -488,6 +525,7 @@ while True:
 
     # 更新系统状态
     safety_system.update_state(key_pressed)
+    safety_system.update_beep()
 
     # 根据状态执行不同处理
     if safety_system.current_state == SystemState.DANGER_DETECTION:
